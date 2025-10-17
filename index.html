@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Attendance</title>
+  <style>
+    :root {
+      --bg:#0f172a; --card:#111827; --muted:#94a3b8; 
+      --accent:#22c55e; --danger:#ef4444; --text:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+      background:linear-gradient(180deg,#0b1220 0%,#0f172a 100%);
+      color:var(--text)
+    }
+    header{
+      padding:20px 24px;border-bottom:1px solid rgba(255,255,255,.06);
+      position:sticky;top:0;background:rgba(15,23,42,.7);backdrop-filter:blur(10px)
+    }
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:20px}
+    @media(min-width:960px){.grid{grid-template-columns:1.1fr .9fr}}
+    .card{
+      background:rgba(17,24,39,.85);border:1px solid rgba(255,255,255,.06);
+      border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.25)
+    }
+    .card h2{margin:0 0 8px;font-size:20px}
+    .card .content{padding:18px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap}
+    button,.link-btn{
+      appearance:none;border:1px solid rgba(255,255,255,.15);background:transparent;
+      color:var(--text);padding:10px 14px;border-radius:12px;cursor:pointer;transition:.2s;font-weight:600
+    }
+    button:hover,.link-btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.25)}
+    .primary{background:var(--accent);border-color:var(--accent);color:#0b1220}
+    .danger{background:var(--danger);border-color:var(--danger)}
+    .status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+    .ok{background:var(--accent)}.bad{background:var(--danger)}.muted{background:gray}
+    .video-wrap{
+      padding:12px;border-radius:14px;background:#0b1220;border:1px dashed rgba(255,255,255,.12);
+      display:flex;align-items:center;justify-content:center;min-height:360px
+    }
+    #video{max-width:100%;border-radius:12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;font-size:14px}
+    th{color:var(--muted);font-weight:600}
+    .empty{color:var(--muted);padding:16px}
+    footer{opacity:.6;text-align:center;font-size:12px;margin:28px 0}
+    .pill{
+      display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;
+      background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);font-size:12px
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:12px">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7l10 5 10-5-10-5Zm0 7L2 4v13l10 5 10-5V4l-10 5Z" stroke="#22c55e" stroke-width="1.2"/>
+        </svg>
+        <div>
+          <div style="font-weight:800;letter-spacing:.4px">Smart Attendance</div>
+          <div class="pill"><span class="status-dot muted" id="cam-dot"></span><span id="cam-status">Camera disconnected</span></div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="primary" id="btn-start">Start Camera</button>
+        <button class="danger" id="btn-stop">Stop Camera</button>
+        <button id="btn-refresh">Refresh</button>
+        <a class="link-btn" id="btn-download" href="/download_attendance" download="Attendance.csv">Download Today CSV</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container grid">
+    <section class="card">
+      <div class="content">
+        <h2>Live Camera</h2>
+        <div class="video-wrap">
+          <img id="video" alt="Video stream will appear here" src="" />
+        </div>
+        <div style="margin-top:10px;color:var(--muted);font-size:13px">Look at the camera !!</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="content">
+        <h2>Today's Attendance</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Time</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div id="empty" class="empty" style="display:none">No entries yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Built for your <code>face_recognition</code> + Flask backend. Customize endpoints in the script below.
+  </footer>
+
+  <script>
+    const camDot = document.getElementById('cam-dot');
+    const camStatus = document.getElementById('cam-status');
+    const img = document.getElementById('video');
+    const tbody = document.getElementById('tbody');
+    const empty = document.getElementById('empty');
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+    const btnRefresh = document.getElementById('btn-refresh');
+    const btnDownload = document.getElementById('btn-download');
+
+    async function loadAttendance(){
+      try{
+        const r = await fetch('/api/attendance', {cache:'no-store'});
+        if(!r.ok) throw new Error('JSON endpoint not found');
+        const data = await r.json();
+        renderRows(data);
+      }catch(e){
+        renderRows([]);
+        console.error('Error fetching attendance:', e);
+      }
+    }
+
+    function renderRows(rows){
+      tbody.innerHTML = '';
+      if(!rows || rows.length === 0){
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      for(const r of rows){
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td');
+        const td2 = document.createElement('td');
+        td1.textContent = r.name || r.Name || '';
+        td2.textContent = r.time || r.Time || '';
+        tr.appendChild(td1); tr.appendChild(td2);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function setCam(connected){
+      if(connected){
+        camDot.className = 'status-dot ok';
+        camStatus.textContent = 'Camera streaming';
+      } else {
+        camDot.className = 'status-dot bad';
+        camStatus.textContent = 'Camera stopped';
+      }
+    }
+
+    btnStart.addEventListener('click', async ()=>{
+      try{ await fetch('/api/camera/start', {method:'POST'}); }catch(_){}
+      img.src = '/video_feed';
+      setCam(true);
+    });
+
+    btnStop.addEventListener('click', async ()=>{
+      try{ await fetch('/api/camera/stop', {method:'POST'}); }catch(_){}
+      img.src = '';
+      setCam(false);
+    });
+
+    btnRefresh.addEventListener('click', loadAttendance);
+
+    (async function(){
+      fetch('/video_feed', {method:'HEAD'}).then(r=>{
+        if(r.ok){ img.src = '/video_feed'; setCam(true); }
+      }).catch(()=>{});
+      await loadAttendance();
+      setInterval(loadAttendance, 5000);
+    })();
+  </script>
+</body>
+</htm
